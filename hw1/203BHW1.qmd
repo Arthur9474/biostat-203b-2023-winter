@@ -48,7 +48,7 @@ zgrep: zgrep search through the contents in a compressed file that matches certa
 ```{bash}
 for datafile in ~/mimic/core/*.gz
 do
-  ls -l $datafile
+  ls -l \$datafile
 done
 
 ```
@@ -60,7 +60,7 @@ The number of lines in each of the csv.gz file is below:
 ```{bash}
 for datafile in ~/mimic/core/*.gz
 do
-  wc $datafile -l
+  wc \$datafile -l
 done
 ```
 
@@ -72,7 +72,7 @@ zcat ~/mimic/core/admissions.csv.gz | wc -l #Display the number of lines
 ```
 
 ```{bash}
-zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print $1}'| sort | uniq -c |wc -l 
+zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$1}'| sort | uniq -c |wc -l 
 ```
 
 There are 256878 unique subjects (patients) in this data file (the header of the column is not included).
@@ -80,34 +80,34 @@ There are 256878 unique subjects (patients) in this data file (the header of the
 (6.)
 
 ```{bash}
-zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print $6}'| tail -n 10
+zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$6}'| tail -n 10
 ```
 
 Some of he possible values in admission_type are "EW EMER", "URGENT", "SURGICAL SAME DAY ADMISSION", etc. They are categorical, string values.
 
 ```{bash}
-zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print $7}'| tail -n 10
+zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$7}'| tail -n 10
 ```
 
 Some of he possible values in admission_location are "EMERGENCY ROOM", "TRANSFER FROM HOSPITAL", "PHYSICIAN REFERRAL", etc. They are categorical, string values.
 
 ```{bash}
-zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print $9}'| tail -n 10
+zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$9}'| tail -n 10
 ```
 
 Some of he possible values in insurance are "Medicaid", "Other", etc. They are categorical, string values.
 
 ```{bash}
-zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print $12}'| tail -n 10
+zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$12}'| tail -n 10
 ```
 
 Some of he possible values in ethnicity are "WHITE", "HISPANIC/LATINO", "BLACK/AFRICAN AMERICAN", etc. They are categorical, string values.
 
 ```{bash}
-zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print $6}' | sort | uniq -c |wc -l #unique count of admission_type
-zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print $7}' | sort | uniq -c |wc -l #unique count of admission_location
-zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print $9}' | sort | uniq -c |wc -l #unique count of insurance
-zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print $12}' | sort | uniq -c |wc -l #unique count of ethncity
+zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$6}' | sort | uniq -c |wc -l #unique count of admission_type
+zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$7}' | sort | uniq -c |wc -l #unique count of admission_location
+zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$9}' | sort | uniq -c |wc -l #unique count of insurance
+zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$12}' | sort | uniq -c |wc -l #unique count of ethncity
 ```
 
 So, there are 9 unique admission types, 12 unique admission locations, 3 different types of insurance and 8 types of ethnicity (the header of each column is not included).
@@ -126,8 +126,8 @@ wget is a command to capture the content from a url link. The option -nc is used
 ```{bash}
 for char in Elizabeth Jane Lydia Darcy
 do
-  echo $char:
-  cat pg42671.txt | tr '[:space:]' '[\n*]' | grep -i -o -c $char
+  echo \$char:
+  cat pg42671.txt | tr '[:space:]' '[\n*]' | grep -i -o -c \$char
 done
 ```
 
@@ -176,12 +176,6 @@ The first line is the hash-bang of the script. It tells the operating system wha
 
 Q5.
 
-```{bash}
-cal
-cal 2021
-cal 9 1752
-```
-
 Cal: The cal function output displays the month and year of the current time, followed by the calendar of the month. When the command is followed by a year, it displays all the 12 monthly calendars of the year. When the command is followed by a month and a year, it displays the calendar of the designated month.
 
 In this example, the September, 1752 calender is displayed, but the date goes from 2nd directly to the 14th, with 11 days missing. This is because the Julian Calendar has a slight miscalculation on the precise duration of a day, and when people discovered it in around 1752, the mistakes has accumulated around 1000 years so the calendar was 11 days late of the actual date, and so it is adjusted in September, 1752.
@@ -208,7 +202,7 @@ last \| head: last displays the last log in time of the current terminal.
 
 {con, pre}{sent, fer}{s,ed}: when used after echo, they form a list of combinations, each with only one word from one of the three curly brackets.
 
-time sleep 5: sleep command delays the excution of the shell script by a certain amount of time, 5 means 5 seconds, time displays the running time of the command, in this time it roughly took 5 seconds to run the sleep command.
+time sleep 5: sleep command delays the execution of the shell script by a certain amount of time, 5 means 5 seconds, time displays the running time of the command, in this time it roughly took 5 seconds to run the sleep command.
 
 history: history outputs all the commands ran by the current terminal.
 
