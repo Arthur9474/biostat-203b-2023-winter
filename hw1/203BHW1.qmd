@@ -211,3 +211,7 @@ last \| head: last displays the last log in time of the current terminal.
 time sleep 5: sleep command delays the excution of the shell script by a certain amount of time, 5 means 5 seconds, time displays the running time of the command, in this time it roughly took 5 seconds to run the sleep command.
 
 history: history outputs all the commands ran by the current terminal.
+
+```{bash}
+python3 --version
+```
