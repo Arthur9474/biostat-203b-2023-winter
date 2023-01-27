@@ -53,7 +53,7 @@ done
 
 ```
 
-The above command displays all the data files that ended with .gz in the mimic/core folder.
+The above command displays all the data files with names that ended with .gz in the mimic/core folder.
 
 The number of lines in each of the csv.gz file is below:
 
