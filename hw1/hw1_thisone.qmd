@@ -44,11 +44,11 @@ sessionInfo()
 
 This exercise (and later in this course) uses the [MIMIC-IV data](https://mimic-iv.mit.edu), a freely accessible critical care database developed by the MIT Lab for Computational Physiology. Follow the instructions at <https://mimic.mit.edu/docs/gettingstarted/> to (1) complete the CITI `Data or Specimens Only Research` course and (2) obtain the PhysioNet credential for using the MIMIC-IV data. Display the verification links to your completion report and completion certificate here. (Hint: The CITI training takes a couple hours and the PhysioNet credentialing takes a couple days; do not leave it to the last minute.)
 
-Completion Report Link:
+**Completion Report Link:**
 
 https://www.citiprogram.org/verify/?k03a88ce2-5dc0-4796-b537-efafe5c87c27-53710023
 
-Completion Certificate Link:
+**Completion Certificate Link:**
 
 https://www.citiprogram.org/verify/?w1b2c4572-6f1d-497e-bdfb-3decf007da49-53710023
 
@@ -71,17 +71,15 @@ ls -l ~/mimic/hosp
 ls -l ~/mimic/icu
 ```
 
-Answer: The uncompressed data is too huge to handle, so it is stored in .csv.gz, which is a compressed form of the csv file, to save space.
+  **Answer: The uncompressed data is too huge to handle, so it is stored in .csv.gz, which is a compressed form of the csv file, to save space.**
 
 3. Briefly describe what bash commands `zcat`, `zless`, `zmore`, and `zgrep` do.
 
-zcat: display the contents in the compressed file (performing cat function in compressed files).
-
-zless: paging through the contents in a compressed file that allows you to scroll up and down.
-
-zmore: paging the contents in a compressed file, but only able to page down.
-
-zgrep: zgrep search through the contents in a compressed file that matches certain expressions.
+  **Answer**
+  **zcat: display the contents in the compressed file (performing cat function in compressed files).**
+  **zless: paging through the contents in a compressed file that allows you to scroll up and down.**
+  **zmore: paging the contents in a compressed file, but only able to page down.**
+  **zgrep: zgrep search through the contents in a compressed file that matches certain expressions.**
 
 4. What's the output of the following bash script?
 ```{bash}
@@ -91,7 +89,7 @@ do
 done
 ```
 
-Answer: The above command displays all the data files with names that ended with .gz in the mimic/core folder. The number of lines in each of the csv.gz file is below:
+  **Answer: The above command displays all the data files with names that ended with .gz in the mimic/core folder. The number of lines in each of the csv.gz file is below:**
 
 ```{bash}
 for datafile in ~/mimic/core/*.gz
@@ -111,7 +109,7 @@ zcat ~/mimic/core/admissions.csv.gz | wc -l #Display the number of lines
 zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$1}'| sort | uniq -c |wc -l 
 ```
 
-Answer: There are 256878 unique subjects (patients) in this data file (the header of the column is not included).
+  **Answer: There are 256878 unique subjects (patients) in this data file (the header of the column is not included).**
 
 6. What are the possible values taken by each of the variable `admission_type`, `admission_location`, `insurance`, and `ethnicity`? Also report the count for each unique value of these variables. (Hint: combine Linux commands `zcat`, `head`/`tail`, `awk`, `uniq -c`, `wc`, and so on.)
 
@@ -119,25 +117,25 @@ Answer: There are 256878 unique subjects (patients) in this data file (the heade
 zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$6}'| tail -n 10
 ```
 
-Answer: Some of he possible values in admission_type are "EW EMER", "URGENT", "SURGICAL SAME DAY ADMISSION", etc. They are categorical, string values.
+  **Answer: Some of he possible values in admission_type are "EW EMER", "URGENT", "SURGICAL SAME DAY ADMISSION", etc. They are categorical, string values.**
 
 ```{bash}
 zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$7}'| tail -n 10
 ```
 
-Answer: Some of he possible values in admission_location are "EMERGENCY ROOM", "TRANSFER FROM HOSPITAL", "PHYSICIAN REFERRAL", etc. They are categorical, string values.
+  **Answer: Some of he possible values in admission_location are "EMERGENCY ROOM", "TRANSFER FROM HOSPITAL", "PHYSICIAN REFERRAL", etc. They are categorical, string values.**
 
 ```{bash}
 zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$9}'| tail -n 10
 ```
 
-Answer: Some of he possible values in insurance are "Medicaid", "Other", etc. They are categorical, string values.
+  **Answer: Some of he possible values in insurance are "Medicaid", "Other", etc. They are categorical, string values.**
 
 ```{bash}
 zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$12}'| tail -n 10
 ```
 
-Answer: Some of he possible values in ethnicity are "WHITE", "HISPANIC/LATINO", "BLACK/AFRICAN AMERICAN", etc. They are categorical, string values.
+  **Answer: Some of he possible values in ethnicity are "WHITE", "HISPANIC/LATINO", "BLACK/AFRICAN AMERICAN", etc. They are categorical, string values.**
 
 ```{bash}
 zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$6}' | sort | uniq -c |wc -l #unique count of admission_type
@@ -146,7 +144,7 @@ zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$9}' | sort | un
 zcat ~/mimic/core/admissions.csv.gz | awk -F "\"*,\"*" '{print \$12}' | sort | uniq -c |wc -l #unique count of ethncity
 ```
 
-Answer: There are 9 unique admission types, 12 unique admission locations, 3 different types of insurance and 8 types of ethnicity (the header of each column is not included).
+  **Answer: There are 9 unique admission types, 12 unique admission locations, 3 different types of insurance and 8 types of ethnicity (the header of each column is not included).**
 
 ## Q4. Who's popular in Price and Prejudice
 
@@ -158,7 +156,7 @@ ls -l
 ```
 Explain what `wget -nc` does. Do **not** put this text file `pg42671.txt` in Git. Complete the following loop to tabulate the number of times each of the four characters is mentioned using Linux commands.
 
-Answer: wget is a command to capture the content from a url link. The option -nc is used when the same file is downloaded to the same directory, adding -nc option will result in the preservation of the old version of the file, in other words, it prevents the original file to be overwritten.
+  **Answer: wget is a command to capture the content from a url link. The option -nc is used when the same file is downloaded to the same directory, adding -nc option will result in the preservation of the old version of the file, in other words, it prevents the original file to be overwritten.**
 
 ```{bash}
 #| eval: false
@@ -180,7 +178,7 @@ and
 echo 'hello, world' >> test2.txt
 ```
 
-Answer: The "\>" and "\>\>" signs can both assign the output of the previous command to the designated file. If the designated file does not exist, both signs create a new file, but if the designated file already exists, "\>" simply overwrite the content of the file with the output, while "\>\>" appends the output to the existing file.
+  **Answer: The "\>" and "\>\>" signs can both assign the output of the previous command to the designated file. If the designated file does not exist, both signs create a new file, but if the designated file already exists, "\>" simply overwrite the content of the file with the output, while "\>\>" appends the output to the existing file.**
 
 For example:
 
@@ -196,59 +194,86 @@ cat test4.txt
 ```
 
 3. Using your favorite text editor (e.g., `vi`), type the following and save the file as `middle.sh`:
-```{bash eval=FALSE}
+#```{bash eval=FALSE}
 #!/bin/sh
 # Select lines from the middle of a file.
 # Usage: bash middle.sh filename end_line num_lines
 # head -n "$2" "$1" | tail -n "$3"
-```
+#```
 Using `chmod` to make the file executable by the owner, and run
 
 ```{bash}
-#| eval: false
 chmod  700 ./middle.sh
 ./middle.sh pg42671.txt 20 5
 ```
 Explain the output. Explain the meaning of `"$1"`, `"$2"`, and `"$3"` in this shell script. Why do we need the first line of the shell script?
 
-Answer: The output is the 16-20th lines from the pg42671.txt file, including the Author and Editor line.
+  **Answer: The output is the 16-20th lines from the pg42671.txt file, including the Author and Editor line.**
 
-The "\$1", "\$2", "\$3" are place holders, which indicate the first, second and third argument, which are numbers in this case, after the file name in the command line. Here, the command line tells the middle.sh function to print 5 lines before the 20th line of the file.
+  **The "\$1", "\$2", "\$3" are place holders, which indicate the first, second and third argument, which are numbers in this case, after the file name in the command line. Here, the command line tells the middle.sh function to print 5 lines before the 20th line of the file.**
 
-The first line is the hash-bang of the script. It tells the operating system what interpreter to use when running the script. In middle.sh it is the /bin/sh interpreter it is using.
+  **The first line is the hash-bang of the script. It tells the operating system what interpreter to use when running the script. In middle.sh it is the /bin/sh interpreter it is using.**
 
 ## Q5. More fun with Linux
 
 Try following commands in Bash and interpret the results: `cal`, `cal 2021`, `cal 9 1752` (anything unusual?), `date`, `hostname`, `arch`, `uname -a`, `uptime`, `who am i`, `who`, `w`, `id`, `last | head`, `echo {con,pre}{sent,fer}{s,ed}`, `time sleep 5`, `history | tail`.
 
-Answer:
+  **Answer:**
+```{bash}
+cal
+cal 2021
+cal 9 1752
+```
+  **cal: The cal function output displays the month and year of the current time, followed by the calendar of the month. When the command is followed by a year, it displays all the 12 monthly calendars of the year. When the command is followed by a month and a year, it displays the calendar of the designated month.**
 
-cal: The cal function output displays the month and year of the current time, followed by the calendar of the month. When the command is followed by a year, it displays all the 12 monthly calendars of the year. When the command is followed by a month and a year, it displays the calendar of the designated month.
+  **-In this example, the September, 1752 calender is displayed, but the date goes from 2nd directly to the 14th, with 11 days missing. This is because the Julian Calendar has a slight miscalculation on the precise duration of a day, and when people discovered it in around 1752, the mistakes has accumulated around 1000 years so the calendar was 11 days late of the actual date, and so it is adjusted in September, 1752.**
 
--In this example, the September, 1752 calender is displayed, but the date goes from 2nd directly to the 14th, with 11 days missing. This is because the Julian Calendar has a slight miscalculation on the precise duration of a day, and when people discovered it in around 1752, the mistakes has accumulated around 1000 years so the calendar was 11 days late of the actual date, and so it is adjusted in September, 1752.
+```{bash}
+date
+hostname
+arch
+uname -a
+```
 
-date: date function displays the date, month, and the precise hour:minute:seconds of the current time.
+  **date: date function displays the date, month, and the precise hour:minute:seconds of the current time.**
 
-hostname: displays the host name of the current system.
+  **hostname: displays the host name of the current system.**
 
-arch: prints our the architecture of the current computer.
+  **arch: prints our the architecture of the current computer.**
 
-uname -a: get system identifications, -a means output all the identification information, including operating system, version, hardware information, etc.
+  **uname -a: get system identifications, -a means output all the identification information, including operating system, version, hardware information, etc.**
 
-uptime: Displays the current time, the running time of the current terminal session, and the average loading time.
+```{bash}
+uptime
+whoami
+who
+w
+```
+  **uptime: Displays the current time, the running time of the current terminal session, and the average loading time.**
 
-whoami: Displays the name of the current user of the shell.
+  **whoami: Displays the name of the current user of the shell.**
 
-who: Display the user who is currently logged in.
+  **who: Display the user who is currently logged in.**
 
-w: Displays the information of the users who are currently logged in, including the output of the uptime command.
+  **w: Displays the information of the users who are currently logged in, including the output of the uptime command.**
 
-id: Displays the user id and the group id of the current user, and other users in the group.
+```{bash}
+id 
+last | head
+echo {con, pre}{sent, fer}{s,ed}
+```
 
-last \| head: last displays the last log in time of the current terminal.
+  **id: Displays the user id and the group id of the current user, and other users in the group.**
 
-{con, pre}{sent, fer}{s,ed}: when used after echo, they form a list of combinations, each with only one word from one of the three curly brackets.
+  **last \| head: last displays the last log in time of the current terminal.**
 
-time sleep 5: sleep command delays the execution of the shell script by a certain amount of time, 5 means 5 seconds, time displays the running time of the command, in this time it roughly took 5 seconds to run the sleep command.
+  **{con, pre}{sent, fer}{s,ed}: when used after echo, they form a list of combinations, each with only one word from one of the three curly brackets.**
 
-history: history outputs all the commands ran by the current terminal.
+```{bash}
+time sleep 5
+history
+```
+
+  **time sleep 5: sleep command delays the execution of the shell script by a certain amount of time, 5 means 5 seconds, time displays the running time of the command, in this time it roughly took 5 seconds to run the sleep command.**
+
+  **history: history outputs all the commands ran by the current terminal.**
