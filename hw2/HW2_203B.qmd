@@ -1,0 +1,291 @@
+---
+title: "Biostat 203B Homework 2"
+subtitle: Due Feb 10 @ 11:59PM
+author: Qingyuan Liu and 305948430
+format:
+  html:
+    theme: cosmo
+    number-sections: true
+    toc: true
+    toc-depth: 4
+    toc-location: left
+    code-fold: false
+knitr:
+  opts_chunk: 
+    cache: false    
+    echo: true
+    fig.align: 'center'
+    fig.width: 6
+    fig.height: 4
+    message: FALSE
+---
+
+Display machine information for reproducibility:
+```{r}
+#| eval: false
+sessionInfo()
+```
+
+Load necessary libraries (you can add more as needed).
+```{r install.packages}
+library(data.table)
+library(lubridate)
+library(R.utils)
+library(stringr)
+library('tidyverse')
+library(ggplot2)
+```
+
+MIMIC data location
+```{r}
+mimic_path <- "~/mimic"
+```
+In this exercise, we use tidyverse (ggplot2, dplyr, etc) to explore the [MIMIC-IV](https://mimic.mit.edu/docs/iv/) data introduced in [homework 1](https://ucla-biostat-203b.github.io/2023winter/hw/hw1/hw1.html) and to build a cohort of ICU stays.
+
+Display the contents of MIMIC data folder. 
+```{r}
+system(str_c("ls -l ", mimic_path, "/"), intern = TRUE)
+system(str_c("ls -l ", mimic_path, "/core"), intern = TRUE)
+system(str_c("ls -l ", mimic_path, "/hosp"), intern = TRUE)
+system(str_c("ls -l ", mimic_path, "/icu"), intern = TRUE)
+```
+
+## Q1. `read.csv` (base R) vs `read_csv` (tidyverse) vs `fread` (data.table)
+
+There are quite a few utilities in R for reading plain text data files. Let us test the speed of reading a moderate sized compressed csv file, `admissions.csv.gz`, by three programs: `read.csv` in base R, `read_csv` in tidyverse, and `fread` in the popular data.table package. 
+
+Which function is fastest? Is there difference in the (default) parsed data types? (Hint: R function `system.time` measures run times.)
+
+For later questions, we stick to the `read_csv` in tidyverse.
+
+**Check contents of icustays.csv**
+```{bash import dataset}
+zcat < ~/mimic/icu/icustays.csv.gz | head -n "10"
+```
+
+```{r import_base}
+system.time({
+  base <- read.csv(str_c(mimic_path, "/icu/icustays.csv.gz"))
+  })
+```
+```{r import_dplyr}
+system.time({
+  dplyr <- read_csv(str_c(mimic_path, "/icu/icustays.csv.gz"))
+  })
+```
+```{r import_fread}
+system.time({
+  fread <- icu_fread <- fread(str_c(mimic_path, "/icu/icustays.csv.gz"))
+  })
+```
+  **Answer: **
+  **According to the system.time results, fread function takes the least time, followed by the base function read.csv, and read_csv in dplyr takes the most time reading the csv file.**
+  **Check data types**
+```{r}
+str(base)
+```
+**The types of data in the base data frame are "chr" "num" or "int"**
+```{r}
+str(dplyr)
+```
+**In the read_csv version, the intime and outtime variables are coded into POSIXct format, while in the base version they were just character variables. In addition, there are no "int" and "num difference" in this dataframe, they are both "double" format.**
+```{r}
+str(fread)
+```
+  **The fread version is kind of in between the previous ones. It also codes the 'intime' 'outtime' into POSIXct format but it still has int and chr difference.**
+  
+
+## Q2. ICU stays
+
+`icustays.csv.gz` (<https://mimic.mit.edu/docs/iv/modules/icu/icustays/>) contains data about Intensive Care Units (ICU) stays. The first 10 lines are
+
+```{bash}
+zcat < ~/mimic/icu/icustays.csv.gz | head -n "10"
+```
+
+1. Import `icustatys.csv.gz` as a tibble `icustays_tble`. 
+
+```{r}
+icustays_tble <- read_csv(str_c(mimic_path, "/icu/icustays.csv.gz"))
+```
+
+2. How many unique `subject_id`? Can a `subject_id` have multiple ICU stays? 
+
+```{r}
+nrow(icustays_tble)
+length(unique(icustays_tble$subject_id))
+
+icustays_tble%>%
+  group_by(subject_id)%>%
+  summarise(nstays = n())%>%
+  head()
+```
+  **There are in total 76,540 columns and 53150 unique subject_id. So, a single subject_id can have multiple stays, such as in the above table, the patients with subject id 10001217 has two icu stays.**
+
+3. Summarize the number of ICU stays per `subject_id` by graphs. 
+```{r}
+stay_times <- icustays_tble%>%
+  group_by(subject_id)%>%
+  summarise(nstays = n())%>%
+  arrange(nstays)
+hist(stay_times$nstays)
+```
+
+4. For each `subject_id`, let's only keep the first ICU stay in the tibble `icustays_tble`. (Hint: `slice_min` and `slice_max` may take long. Think alternative ways to achieve the same function.)
+
+```{r}
+icu_uniq <- icustays_tble%>%
+  arrange(subject_id, intime)%>%
+  distinct(subject_id, .keep_all = TRUE)
+icu_uniq
+```
+
+## Q3. `admission` data
+
+Information of the patients admitted into hospital is available in `admissions.csv.gz`. See <https://mimic.mit.edu/docs/iv/modules/hosp/admissions/> for details of each field in this file. The first 10 lines are
+```{bash}
+zcat < ~/mimic/core/admissions.csv.gz | head -n "10"
+```
+
+1. Import `admissions.csv.gz` as a tibble `admissions_tble`.
+```{r}
+admissions_tble <- read_csv(str_c(mimic_path, "/core/admissions.csv.gz"))
+```
+
+2. Let's only keep the admissions that have a match in `icustays_tble` according to `subject_id` and `hadmi_id`.
+```{r}
+nrow(admissions_tble)
+icu_admission <- admissions_tble%>%
+  arrange(subject_id, hadm_id) %>%
+  semi_join(icu_uniq, by=c('subject_id', 'hadm_id'))
+icu_admission
+```
+**Now the new dataset icu_admission has the same number of rows as the icu_uniq created above.**
+
+3. Summarize the following variables by graphics. 
+
+    - admission year  
+    - admission month  
+    - admission month day  
+    - admission week day  
+    - admission hour (anything unusual?)  
+    - admission minute (anything unusual?)  
+    - length of hospital stay (anything unusual?)    
+```{r}
+ggplot(data = icu_admission)+
+  geom_bar(mapping=aes(x=year(icu_admission$admittime)))+
+  labs(title = 'Distribution of admission year')+
+  labs(x = 'Admission Year')
+```
+```{r}
+
+
+```
+    
+    
+## Q4. `patients` data
+
+Patient information is available in `patients.csv.gz`. See <https://mimic.mit.edu/docs/iv/modules/hosp/patients/> for details of each field in this file. The first 10 lines are
+```{r}
+system(
+  str_c(
+    "zcat < ", 
+    str_c(mimic_path, "/core/patients.csv.gz"), 
+    " | head"
+    ), 
+  intern = TRUE
+)
+```
+
+1. Import `patients.csv.gz` (<https://mimic.mit.edu/docs/iv/modules/hosp/patients/>) as a tibble `patients_tble` and only keep the patients who have a match in `icustays_tble` (according to `subject_id`).
+
+2. Summarize variables `gender` and `anchor_age`, and explain any patterns you see.
+
+## Q5. Lab results
+
+`labevents.csv.gz` (<https://mimic.mit.edu/docs/iv/modules/hosp/labevents/>) contains all laboratory measurements for patients. The first 10 lines are
+```{r}
+system(
+  str_c(
+    "zcat < ", 
+    str_c(mimic_path, "/hosp/labevents.csv.gz"), 
+    " | head"
+    ), 
+  intern = TRUE
+)
+```
+`d_labitems.csv.gz` is the dictionary of lab measurements. 
+```{r}
+system(
+  str_c(
+    "zcat < ", 
+    str_c(mimic_path, "/hosp/d_labitems.csv.gz"), 
+    " | head"
+    ), 
+  intern = TRUE
+)
+```
+
+1. Find how many rows are in `labevents.csv.gz`.
+
+2. We are interested in the lab measurements of creatinine (50912), potassium (50971), sodium (50983), chloride (50902), bicarbonate (50882), hematocrit (51221), white blood cell count (51301), and glucose (50931). Retrieve a subset of `labevents.csv.gz` only containing these items for the patients in `icustays_tble` as a tibble `labevents_tble`. 
+
+    Hint: `labevents.csv.gz` is a data file too big to be read in by the `read_csv` function in its default setting. Utilize the `col_select` option in the `read_csv` function to reduce the memory burden. It took my computer 5-10 minutes to ingest this file. If your computer really has trouble importing `labevents.csv.gz`, you can import from the reduced data file `labevents_filtered_itemid.csv.gz`.
+
+3. Further restrict `labevents_tble` to the first lab measurement during the ICU stay. 
+
+4. Summarize the lab measurements by appropriate numerics and graphics. 
+
+## Q6. Vitals from charted events
+
+`chartevents.csv.gz` (<https://mimic.mit.edu/docs/iv/modules/icu/chartevents/>) contains all the charted data available for a patient. During their ICU stay, the primary repository of a patient’s information is their electronic chart. The `itemid` variable indicates a single measurement type in the database. The `value` variable is the value measured for `itemid`. The first 10 lines of `chartevents.csv.gz` are
+```{r}
+system(
+  str_c(
+    "zcat < ", 
+    str_c(mimic_path, "/icu/chartevents.csv.gz"), 
+    " | head"), 
+  intern = TRUE
+)
+```
+`d_items.csv.gz` (<https://mimic.mit.edu/docs/iv/modules/icu/d_items/>) is the dictionary for the `itemid` in `chartevents.csv.gz`. 
+```{r}
+system(
+  str_c(
+    "zcat < ", 
+    str_c(mimic_path, "/icu/d_items.csv.gz"), 
+    " | head"), 
+  intern = TRUE
+)
+```
+
+1. We are interested in the vitals for ICU patients: heart rate (220045), mean non-invasive blood pressure (220181), systolic non-invasive blood pressure (220179), body temperature in Fahrenheit (223761), and respiratory rate (220210). Retrieve a subset of `chartevents.csv.gz` only containing these items for the patients in `icustays_tble` as a tibble `chartevents_tble`.
+
+    Hint: `chartevents.csv.gz` is a data file too big to be read in by the `read_csv` function in its default setting. Utilize the `col_select` option in the `read_csv` function to reduce the memory burden. It took my computer >15 minutes to ingest this file. If your computer really has trouble importing `chartevents.csv.gz`, you can import from the reduced data file `chartevents_filtered_itemid.csv.gz`.
+
+2. Further restrict `chartevents_tble` to the first vital measurement during the ICU stay. 
+
+3. Summarize these vital measurements by appropriate numerics and graphics. 
+
+## Q7. Putting things together
+
+Let us create a tibble `mimic_icu_cohort` for all ICU stays, where rows are the first ICU stay of each unique adult (age at admission > 18) and columns contain at least following variables  
+
+- all variables in `icustays.csv.gz`  
+- all variables in `admission.csv.gz`  
+- all variables in `patients.csv.gz`  
+- first lab measurements during ICU stay  
+- first vital measurements during ICU stay
+- an indicator variable `thirty_day_mort` whether the patient died within 30 days of hospital admission (30 day mortality)
+
+## Q8. Exploratory data analysis (EDA)
+
+Summarize following information using appropriate numerics or graphs.
+
+- `thirty_day_mort` vs demographic variables (ethnicity, language, insurance, marital_status, gender, age at hospital admission)
+
+- `thirty_day_mort` vs first lab measurements
+
+- `thirty_day_mort` vs first vital measurements
+
+- `thirty_day_mort` vs first ICU unit
