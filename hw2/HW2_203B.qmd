@@ -34,6 +34,7 @@ library(R.utils)
 library(stringr)
 library(tidyverse)
 library(ggpubr)
+library(cowplot)
 ```
 
 MIMIC data location
@@ -78,8 +79,7 @@ system.time({
   fread <- icu_fread <- fread(str_c(mimic_path, "/icu/icustays.csv.gz"))
   })
 ```
-  **Answer: **
-  **According to the system.time results, fread function takes the least time, followed by the base function read.csv, and read_csv in dplyr takes the most time reading the csv file.**
+  **Answer: According to the system.time results, fread function takes the least time, followed by the base function read.csv, and read_csv in dplyr takes the most time reading the csv file.**
   **Check data types**
 ```{r}
 str(base)
@@ -160,8 +160,8 @@ admissions_tble <- read_csv(str_c(mimic_path, "/core/admissions.csv.gz"))
 nrow(admissions_tble)
 icu_admission <- admissions_tble %>%
   arrange(subject_id, hadm_id) %>%
-  semi_join(icu_uniq, by = c('subject_id', 'hadm_id'))
-icu_admission
+  semi_join(icu_uniq, by = c('subject_id', 'hadm_id')) %>%
+  print(width = Inf)
 ```
   **Now the new dataset icu_admission has the same number of rows as the icu_uniq created above.**
 
@@ -221,7 +221,7 @@ ggplot(data = icu_admission) +
   **There are some extreme values that have stays hours longer than 100 hours. But majority of patients only stay for less than 10 hours.**
 ```{r}
 stay_length <- as.numeric(icu_admission$dischtime - icu_admission$admittime)/3600
-#Since there are very few hospital stays that are longer than 40 hours, I limit the length of x-axis to 40 hours make the graph looks better.
+#Since there are very few hospital stays that are longer than 40 hours, I limit the length of x-axis to 40 hours to make the graph looks better.
 hist(stay_length, breaks = 100, xlim = c(0, 40),
      main = "Distribution of stay length", 
      xlab = "Hours of stay")
@@ -231,7 +231,6 @@ hist(stay_length, breaks = 100,
      xlab = "Hours of stay")
 ```
 
-  
 ## Q4. `patients` data
 
 Patient information is available in `patients.csv.gz`. See <https://mimic.mit.edu/docs/iv/modules/hosp/patients/> for details of each field in this file. The first 10 lines are
@@ -265,7 +264,7 @@ ggplot(data = icu_patients) +
 ```
 ```{r}
 icu_patients %>%
-  filter(anchor_age==91) %>%
+  filter(anchor_age == 91) %>%
   nrow()
 ```
   **The table and summary results showed that there are much more male patients than female patients. The mean age of all patients is 63.51, and the distribution of age is very left-skewed.**
@@ -310,8 +309,8 @@ lab_icu <- labevents %>%
   filter(itemid %in% 
            c(50912, 50971, 50983, 50902, 50882, 51221, 51301, 50931)) %>%
   filter(subject_id %in% icustays_tble$subject_id) %>%
-  left_join(select(lab_dic, c(itemid, label)), by = 'itemid')
-lab_icu
+  left_join(select(lab_dic, c(itemid, label)), by = 'itemid') %>%
+  print(width = Inf)
 ```
   **icu_lab contains 13,926,853 rows, it only has the lab items required by us, and the rows all belong to the icu patients.**
 
@@ -326,7 +325,7 @@ lab_icuonly1 <- lab_icu %>%
   filter(charttime >= intime & charttime <= outtime) %>%
   group_by(subject_id, itemid) %>%
   arrange(charttime, .by_group = T) %>%
-  slice_head(n=1) %>%
+  slice_head(n = 1) %>%
   ungroup()
 
 lab_icuonly2 <- lab_icuonly1 %>%
@@ -340,14 +339,14 @@ lab_icuonly2 <- lab_icuonly1 %>%
 4. Summarize the lab measurements by appropriate numerics and graphics. 
 
 ```{r}
-lapply(lab_icuonly2[,-c(1,2)], summary) #apply summary() to each columns
+lapply(lab_icuonly2[, -c(1, 2)], summary) #apply summary() to each columns
 ```
   
   **Visualize each lab item by histograms **
 ```{r}
 #use the unpivoted dataframe, since it is easier to facet. 
 lab_icuonly1%>%
-#There are many abnormal values on some of the variables, possibly due to the recording errors of the hospital, limit each variable to make the histograms better:
+#There are many abnormal values on some of the variables, possibly due to the recording errors, limit each variable to make the histograms better:
   filter((label == 'Creatinine' & valuenum < 7.5) | 
            (label == 'White Blood Cells' & valuenum < 30 ) |
            (label == 'Glucose' & valuenum < 1000) |
@@ -383,9 +382,9 @@ chart_dic <- read_csv(str_c(mimic_path, "/icu/d_items.csv.gz"))
 
 ```{r}
 chartevents_tble <- chartevents %>%
-  filter(itemid %in% c(220045, 220181, 220179, 223761, 220210))%>%
-  filter(subject_id %in% icu_uniq$subject_id)%>%
-  left_join(select(chart_dic, c(itemid, label)), by = 'itemid')%>%
+  filter(itemid %in% c(220045, 220181, 220179, 223761, 220210)) %>%
+  filter(subject_id %in% icu_uniq$subject_id) %>%
+  left_join(select(chart_dic, c(itemid, label)), by = 'itemid') %>%
   print(width = Inf)
 ```
 
@@ -394,10 +393,10 @@ chartevents_tble <- chartevents %>%
 #icu_arrange contains all the rows in icustays, but with only three relevant columns and sorted by subject ID.
 chart_icuonly1 <- chartevents_tble %>%
   left_join(icu_arrange, by = "subject_id") %>%
-  filter(charttime >= intime & charttime <= outtime)%>%
+  filter(charttime >= intime & charttime <= outtime) %>%
   group_by(subject_id, itemid) %>%
   arrange(charttime, .by_group = T) %>%
-  slice_head(n=1) %>%
+  slice_head(n = 1) %>%
   ungroup()
 
 chart_icuonly2 <- chart_icuonly1 %>%
@@ -410,7 +409,7 @@ chart_icuonly2 <- chart_icuonly1 %>%
 3. Summarize these vital measurements by appropriate numerics and graphics.
 
 ```{r}
-lapply(chart_icuonly2[,-1], summary) #apply summary() to each columns
+lapply(chart_icuonly2[, -1], summary) #apply summary() to each columns
 ```
   
   **Visualize each lab item by histograms **
@@ -458,7 +457,7 @@ mimic_icu_unfilter <- icustays_tble %>%
   print(width = Inf)
 ```
   **There are multiple roles for a single subject_id, due to multiple admission, I only want to keep the admission data for the icu_stay. **
-```{r}
+```{r cohort dataset}
 mimic_icu_cohort <- mimic_icu_unfilter %>%
    #Used filter to keep the rows that the intime of icu is between the admittime and dischattime of the admission.
   filter(intime > admittime & intime < dischtime) %>%
@@ -467,6 +466,8 @@ mimic_icu_cohort <- mimic_icu_unfilter %>%
   slice(n = 1) %>%
   ungroup() %>%
   print(width = Inf)
+
+table(mimic_icu_cohort$thirty_day_mort)
 ```
 
 ## Q8. Exploratory data analysis (EDA)
@@ -481,7 +482,8 @@ ethnicity_group <- mimic_icu_cohort %>%
   summarise(num = n(), 
             death_num = sum(thirty_day_mort),
             mort_rate = death_num/num) %>%
-  mutate(var_name = str_sub(ethnicity_group$ethnicity, end = 15)) %>%
+  #Limit the length of the labels
+  mutate(var_name = str_sub(ethnicity, end = 15)) %>%
   print(width = Inf)
 ```
   **It looks like the patients whose ethnicity is 'unknown' or 'unable to obtain' have the highest mortality rate. Among the patients with known ethnicity, Asians have the highest death rate while American Indian has the lowest. **
@@ -490,7 +492,7 @@ ethnicity_group <- mimic_icu_cohort %>%
 (language_group <- mimic_icu_cohort %>%
   group_by(language) %>% summarise(num = n(), 
                                    death_num = sum(thirty_day_mort),
-                                   mort_rate = death_num/num))
+                                   mort_rate = death_num / num))
 ```
   **The patients whose language is unknown/non-English has a light higher death rate than those who speak English.**
 
@@ -498,7 +500,7 @@ ethnicity_group <- mimic_icu_cohort %>%
 (insurance_group <- mimic_icu_cohort %>%
   group_by(insurance) %>% summarise(num = n(), 
                                    death_num = sum(thirty_day_mort),
-                                   mort_rate = death_num/num))
+                                   mort_rate = death_num / num))
 ```
   **Patients with Medicaid insurance have a lower death rate.**
 
@@ -506,14 +508,14 @@ ethnicity_group <- mimic_icu_cohort %>%
 (marital_group <- mimic_icu_cohort %>%
   group_by(marital_status) %>% summarise(num = n(), 
                                    death_num = sum(thirty_day_mort),
-                                   mort_rate = death_num/num))
+                                   mort_rate = death_num / num))
 ```
   **Among non-missing data, Single patients seems to have the lowest death rate while the widowed patients have the highest.**
 ```{r gender}
 (gender_group <- mimic_icu_cohort %>%
   group_by(gender) %>% summarise(num = n(), 
                                    death_num = sum(thirty_day_mort),
-                                   mort_rate = death_num/num))
+                                   mort_rate = death_num / num))
 ```
   **There is a slight trend that the female patients have a higher death rate than male patients.**
 
@@ -522,7 +524,7 @@ ethnicity_group <- mimic_icu_cohort %>%
 (age_mort <- mimic_icu_cohort %>%
   group_by(age_real) %>% summarise(num = n(), 
                                    death_num = sum(thirty_day_mort),
-                                   mort_rate = death_num/num))
+                                   mort_rate = death_num / num))
 lm(mort_rate ~ age_real, data = age_mort) %>%
   summary()
 ```
@@ -542,17 +544,29 @@ for (i in demo_vars) {
   df <- get(i)
   p <- ggplot(df) +
     geom_col(mapping = aes(x = var_name, y = mort_rate)) +
-    ggtitle("30-Day-Mortality in Different", paste(i)) +
-    theme(axis.text.x = element_text(angle = 20, hjust = 1, size = 5)) + 
-    xlab(i)
+    xlab(i)+
+    theme(axis.text.x = element_text(angle = 20, hjust = 1, size = 5),
+          axis.title.x = element_text(size = 10))
   plots[[i]] <- p
 }
 
 plots[[6]] <- ggplot(age_mort, mapping = aes(x = age_real, y = mort_rate)) +
   geom_point() +
-  geom_smooth(method = 'gam')
+  geom_smooth(method = 'gam') +
+  theme(axis.title.x = element_text(size = 10))
+```
 
-ggarrange(plotlist = plots, nrow = 2, ncol = 3, widths = c(3, 3, 3))
+```{r}
+plots_arranged <- ggarrange(plotlist = plots, nrow = 2, ncol = 3, widths = c(3, 3, 3))
+
+plots_final <- ggdraw() + 
+  draw_label("Different mortality rates across demographic groups", 
+             fontface = "bold", fontfamily = "serif", size = 15, 
+             x = 0.5, y = 0.95) + 
+  draw_plot(plots_arranged)
+
+# Print the plot with the title
+print(plots_final)
 ```
   **These plots compared the 30-day-mortality rate across different demographic groups. All of them basically corresponds to the summaries based on the nurmeical summaries. For the dot plot of the mort vs age, it looks like there is an exponential growth of mortality rate with age.**
 
@@ -588,7 +602,7 @@ mimic_icu_cohort%>%
   geom_boxplot(mapping = aes(x = thirty_day_mort, y = Values)) +
   labs(x = 'Death Status at 30 days') +
   ggtitle('First Lab Measurements in Two Groups')+
-  facet_wrap(~lab_type, scales = "free")
+  facet_wrap(~ lab_type, scales = "free")
 
 ```
   **For every lab measurement type, there seems to be a difference between the mean measurements of the TRUE and FALSE group. The more obvious ones are bicarbonate, creatinine, glucose and sodium. In bicarbonate the mortality group has a much lower mean bicarbonate level than the other. While in Creatinine group the mortality group has a higher level than the non-mortality group.**
@@ -606,12 +620,12 @@ summary_vital <- mimic_icu_cohort %>%
   group_by(vital_type, thirty_day_mort) %>%
   summarise(number = n(),
             mean = mean(Values),
-            sd = sd(Values))%>%
+            sd = sd(Values)) %>%
   print(width = Inf)
 ```
 
 ```{r}
-mimic_icu_cohort%>%
+mimic_icu_cohort %>%
   select(c(37:42)) %>%
   pivot_longer(-thirty_day_mort, names_to = 'vital_type', values_to = 'Values') %>%
   group_by(vital_type) %>%
@@ -624,7 +638,7 @@ mimic_icu_cohort%>%
   geom_boxplot(mapping = aes(x = thirty_day_mort, y = Values)) +
   labs(x = 'Death Status at 30 days') +
   ggtitle('First Vital Measurements in Two Groups')+
-  facet_wrap(~vital_type, scales = "free")
+  facet_wrap(~ vital_type, scales = "free")
 ```
   **All the vital measurements are having a difference between the mort and non-mort groups. For example, the patients who died in 30 days have a higher heart rate and respiratory rate measurement.**
 
@@ -639,7 +653,7 @@ summary_unit <- mimic_icu_cohort %>%
 ```
 
 ```{r}
-summary_unit%>%
+summary_unit %>%
   mutate(short_name = gsub(".*\\((.*)\\).*", "\\1", first_careunit)) %>%
   arrange(n) %>%
   ggplot() +
