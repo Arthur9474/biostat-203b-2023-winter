@@ -1,0 +1,665 @@
+---
+title: "Biostat 203B Homework 2"
+subtitle: Due Feb 10 @ 11:59PM
+author: Qingyuan Liu and 305948430
+format:
+  html:
+    theme: cosmo
+    number-sections: true
+    toc: true
+    toc-depth: 4
+    toc-location: left
+    code-fold: false
+knitr:
+  opts_chunk: 
+    cache: false    
+    echo: true
+    fig.align: 'center'
+    fig.width: 6
+    fig.height: 4
+    message: FALSE
+---
+
+Display machine information for reproducibility:
+```{r}
+#| eval: false
+sessionInfo()
+```
+
+Load necessary libraries (you can add more as needed).
+```{r packages}
+library(data.table)
+library(lubridate)
+library(R.utils)
+library(stringr)
+library(tidyverse)
+library(ggpubr)
+library(cowplot)
+```
+
+MIMIC data location
+```{r}
+mimic_path <- "~/mimic"
+```
+In this exercise, we use tidyverse (ggplot2, dplyr, etc) to explore the [MIMIC-IV](https://mimic.mit.edu/docs/iv/) data introduced in [homework 1](https://ucla-biostat-203b.github.io/2023winter/hw/hw1/hw1.html) and to build a cohort of ICU stays.
+
+Display the contents of MIMIC data folder. 
+```{r}
+system(str_c("ls -l ", mimic_path, "/"), intern = TRUE)
+system(str_c("ls -l ", mimic_path, "/core"), intern = TRUE)
+system(str_c("ls -l ", mimic_path, "/hosp"), intern = TRUE)
+system(str_c("ls -l ", mimic_path, "/icu"), intern = TRUE)
+```
+
+## Q1. `read.csv` (base R) vs `read_csv` (tidyverse) vs `fread` (data.table)
+
+There are quite a few utilities in R for reading plain text data files. Let us test the speed of reading a moderate sized compressed csv file, `admissions.csv.gz`, by three programs: `read.csv` in base R, `read_csv` in tidyverse, and `fread` in the popular data.table package. 
+
+Which function is fastest? Is there difference in the (default) parsed data types? (Hint: R function `system.time` measures run times.)
+
+For later questions, we stick to the `read_csv` in tidyverse.
+
+**Check contents of icustays.csv**
+```{bash import dataset}
+zcat < ~/mimic/icu/icustays.csv.gz | head -n "10"
+```
+
+```{r import_base}
+system.time({
+  base <- read.csv(str_c(mimic_path, "/icu/icustays.csv.gz"))
+  })
+```
+```{r import_dplyr}
+system.time({
+  dplyr <- read_csv(str_c(mimic_path, "/icu/icustays.csv.gz"))
+  })
+```
+```{r import_fread}
+system.time({
+  fread <- icu_fread <- fread(str_c(mimic_path, "/icu/icustays.csv.gz"))
+  })
+```
+  **Answer: According to the system.time results, fread function takes the least time, followed by the base function read.csv, and read_csv in dplyr takes the most time reading the csv file.**
+  **Check data types**
+```{r}
+str(base)
+```
+  **The types of data in the base data frame are "chr" "num" or "int"**
+```{r}
+str(dplyr)
+```
+  **In the read_csv version, the intime and outtime variables are coded into POSIXct format, while in the base version they were just character variables. In addition, there are no "int" and "num difference" in this dataframe, they are both "double" format.**
+```{r}
+str(fread)
+```
+  **The fread version is kind of in between the previous ones. It also codes the 'intime' 'outtime' into POSIXct format but it still has int and num difference.**
+  
+
+## Q2. ICU stays
+
+`icustays.csv.gz` (<https://mimic.mit.edu/docs/iv/modules/icu/icustays/>) contains data about Intensive Care Units (ICU) stays. The first 10 lines are
+
+```{bash}
+zcat < ~/mimic/icu/icustays.csv.gz | head -n "10"
+```
+
+1. Import `icustatys.csv.gz` as a tibble `icustays_tble`. 
+
+```{r}
+icustays_tble <- read_csv(str_c(mimic_path, "/icu/icustays.csv.gz"))
+```
+
+2. How many unique `subject_id`? Can a `subject_id` have multiple ICU stays? 
+
+```{r}
+nrow(icustays_tble)
+length(unique(icustays_tble$subject_id))
+
+icustays_tble %>%
+  group_by(subject_id) %>%
+  summarise(nstays = n()) %>%
+  head()
+```
+  **There are in total 76,540 columns and 53150 unique subject_id. So, a single subject_id can have multiple stays, such as in the above head() table, the patients with subject id 10001217 has two icu stays.**
+
+3. Summarize the number of ICU stays per `subject_id` by graphs. 
+```{r}
+stay_times <- icustays_tble %>%
+  group_by(subject_id) %>%
+  summarise(nstays = n()) %>%
+  arrange(nstays)
+hist(stay_times$nstays, 
+     main = 'Distribution of stay_times', 
+     xlab = 'Number of patients')
+```
+  **The distribution of number of times of icu_stay is summarized with a histogram here. From the graph, we can see that the majority of people only stayed in ICU for 1 or 2 times, but a few people stayed there for more than 5 times.**
+
+4. For each `subject_id`, let's only keep the first ICU stay in the tibble `icustays_tble`. (Hint: `slice_min` and `slice_max` may take long. Think alternative ways to achieve the same function.)
+
+```{r}
+icu_uniq <- icustays_tble %>%
+  arrange(subject_id, intime) %>%
+  distinct(subject_id, .keep_all = TRUE)
+icu_uniq
+```
+
+## Q3. `admission` data
+
+Information of the patients admitted into hospital is available in `admissions.csv.gz`. See <https://mimic.mit.edu/docs/iv/modules/hosp/admissions/> for details of each field in this file. The first 10 lines are
+```{bash}
+zcat < ~/mimic/core/admissions.csv.gz | head -n "10"
+```
+
+1. Import `admissions.csv.gz` as a tibble `admissions_tble`.
+```{r}
+admissions_tble <- read_csv(str_c(mimic_path, "/core/admissions.csv.gz"))
+```
+
+2. Let's only keep the admissions that have a match in `icustays_tble` according to `subject_id` and `hadmi_id`.
+```{r}
+nrow(admissions_tble)
+icu_admission <- admissions_tble %>%
+  arrange(subject_id, hadm_id) %>%
+  semi_join(icu_uniq, by = c('subject_id', 'hadm_id')) %>%
+  print(width = Inf)
+```
+  **Now the new dataset icu_admission has the same number of rows as the icu_uniq created above.**
+
+3. Summarize the following variables by graphics. 
+
+    - admission year  
+```{r}
+#admission year
+ggplot(data = icu_admission) +
+  geom_bar(mapping = aes(x = year(icu_admission$admittime))) +
+  labs(title = 'Distribution of admission year') +
+  labs(x = 'Admission Year')
+```
+    - admission month  
+```{r}
+#admission month
+ggplot(data = icu_admission) +
+  geom_bar(mapping = aes(x = month(icu_admission$admittime))) +
+  labs(title = 'Distribution of admission month') +
+  labs(x = 'Admission Month')
+```
+    - admission month day  
+```{r}
+#admission month day
+ggplot(data = icu_admission) +
+  geom_bar(mapping = aes(x = mday(icu_admission$admittime))) +
+  labs(title = 'Distribution of admission day of month') +
+  labs(x = 'Admission Month Day')
+```
+    - admission week day  
+```{r}
+#admission week day
+ggplot(data = icu_admission) +
+  geom_bar(mapping = aes(x = wday(icu_admission$admittime))) +
+  labs(title = 'Distribution of admission day of week') +
+  labs(x = 'Admission Week Day')
+```
+    - admission hour (anything unusual?)  
+  **The admissions at 0 and 7 o'clocks are abnormally high. The reason why 7 o'clock is crowded is probably because it is when people normally wake up and got out, the 0 o'clock is probably because sometimes the records does not have exact hour, so many of them are put on 0 o'clock.**
+```{r}
+#admission hour in a day
+ggplot(data = icu_admission) +
+  geom_bar(mapping = aes(x = hour(icu_admission$admittime))) +
+  labs(title = 'Distribution of admission hour') +
+  labs(x = 'Admission Hour')
+```
+    - admission minute (anything unusual?)  
+  **The bar plot shows that the admissions at 0, 15, 30 and 45 are all significantly higher than other times. This is possibly due to the same rounding issues as the hours of the day, recorders tend to round unexact times to these values.**
+```{r}
+#admission minute
+ggplot(data = icu_admission) +
+  geom_bar(mapping = aes(x = minute(icu_admission$admittime))) +
+  labs(title = 'Distribution of admission hour') +
+  labs(x = 'Admission Hour')
+```
+    - length of hospital stay (anything unusual?) 
+  **There are some extreme values that have stays hours longer than 100 hours. But majority of patients only stay for less than 10 hours.**
+```{r}
+stay_length <- as.numeric(icu_admission$dischtime - icu_admission$admittime)/3600
+#Since there are very few hospital stays that are longer than 40 hours, I limit the length of x-axis to 40 hours to make the graph looks better.
+hist(stay_length, breaks = 100, xlim = c(0, 40),
+     main = "Distribution of stay length", 
+     xlab = "Hours of stay")
+#This is the complete graph:
+hist(stay_length, breaks = 100,
+     main = "Distribution of stay length (complete x-axis)", 
+     xlab = "Hours of stay")
+```
+
+## Q4. `patients` data
+
+Patient information is available in `patients.csv.gz`. See <https://mimic.mit.edu/docs/iv/modules/hosp/patients/> for details of each field in this file. The first 10 lines are
+```{bash}
+zcat < ~/mimic/core/patients.csv.gz | head
+```
+
+1. Import `patients.csv.gz` (<https://mimic.mit.edu/docs/iv/modules/hosp/patients/>) as a tibble `patients_tble` and only keep the patients who have a match in `icustays_tble` (according to `subject_id`).
+
+```{r}
+patients_tble <- read_csv(str_c(mimic_path, "/core/patients.csv.gz"))
+icu_patients <- patients_tble %>%
+  arrange(subject_id) %>%
+  semi_join(icu_uniq, by=c('subject_id'))
+icu_patients
+```
+
+2. Summarize variables `gender` and `anchor_age`, and explain any patterns you see.
+
+```{r}
+table(icu_patients$gender)
+summary(icu_patients$anchor_age)
+```
+  **There is limited information in the above results, except that we can see there are more male patients than female patients. And the anchor age has a mean around 63, and a max about 91.**
+```{r}
+#Use histograms to visualize the two variables
+ggplot(data = icu_patients) + 
+  geom_histogram(mapping = aes(x = anchor_age, fill = gender), bins = 80) +
+  labs(title = "") +
+  labs(x = "Anchor age (years)", fill = "Gender")
+```
+```{r}
+icu_patients %>%
+  filter(anchor_age == 91) %>%
+  nrow()
+```
+  **The table and summary results showed that there are much more male patients than female patients. The mean age of all patients is 63.51, and the distribution of age is very left-skewed.**
+  **On the histogram, we can see that the distribution of both females and males are both left-skewed, and the number of male patients are indeed more than female patients. In addition, there is a very wired column on the right side, I checked it with filter() and it shows it's because there are many patients with age 91 and no patient is beyond this age. It might be caused by the record of hospital automatically classify all patients older than 91 as 91 years old.**
+
+## Q5. Lab results
+
+`labevents.csv.gz` (<https://mimic.mit.edu/docs/iv/modules/hosp/labevents/>) contains all laboratory measurements for patients. The first 10 lines are
+```{bash}
+zcat < ~/mimic/hosp/labevents.csv.gz | head
+```
+
+`d_labitems.csv.gz` is the dictionary of lab measurements. 
+```{bash}
+zcat < ~/mimic/hosp/d_labitems.csv.gz | head
+```
+1. Find how many rows are in `labevents.csv.gz`.
+
+```{bash}
+zcat < ~/mimic/hosp/labevents.csv.gz | awk 'END {print NR}'
+```
+  **In the complete labevents file, there are 122103668 lines in total.**
+```{r}
+lab_dic <- read_csv(str_c(mimic_path, "/hosp/d_labitems.csv.gz"))
+labevents <- read_csv(str_c(mimic_path, "/hosp/labevents_filtered_itemid.csv.gz"))
+```
+
+```{r}
+#number of rows in the filtered csv file:
+nrow(labevents) 
+```
+
+  **There are 30198826 rows in this filtered dataset. **
+
+2. We are interested in the lab measurements of creatinine (50912), potassium (50971), sodium (50983), chloride (50902), bicarbonate (50882), hematocrit (51221), white blood cell count (51301), and glucose (50931). Retrieve a subset of `labevents.csv.gz` only containing these items for the patients in `icustays_tble` as a tibble `labevents_tble`. 
+
+    Hint: `labevents.csv.gz` is a data file too big to be read in by the `read_csv` function in its default setting. Utilize the `col_select` option in the `read_csv` function to reduce the memory burden. It took my computer 5-10 minutes to ingest this file. If your computer really has trouble importing `labevents.csv.gz`, you can import from the reduced data file `labevents_filtered_itemid.csv.gz`.
+    
+```{r}
+lab_icu <- labevents %>%
+  arrange(subject_id, itemid) %>%
+  filter(itemid %in% 
+           c(50912, 50971, 50983, 50902, 50882, 51221, 51301, 50931)) %>%
+  filter(subject_id %in% icustays_tble$subject_id) %>%
+  left_join(select(lab_dic, c(itemid, label)), by = 'itemid') %>%
+  print(width = Inf)
+```
+  **icu_lab contains 13,926,853 rows, it only has the lab items required by us, and the rows all belong to the icu patients.**
+
+3. Further restrict `labevents_tble` to the first lab measurement during the ICU stay. 
+```{r}
+icu_arrange <- icustays_tble %>%
+  arrange(subject_id) %>%
+  select(subject_id, intime, outtime, stay_id)
+#icu_arrange should contain all the rows in icustays, but with only three relevant columns and sorted by subject ID.
+lab_icuonly1 <- lab_icu %>%
+  left_join(icu_arrange, by = "subject_id") %>%
+  filter(charttime >= intime & charttime <= outtime) %>%
+  group_by(subject_id, itemid) %>%
+  arrange(charttime, .by_group = T) %>%
+  slice_head(n = 1) %>%
+  ungroup()
+
+lab_icuonly2 <- lab_icuonly1 %>%
+  select(-intime, -outtime, -charttime, -itemid) %>%
+  pivot_wider(names_from = label, 
+              values_from = valuenum) %>%
+  print(width = Inf)
+```
+
+
+4. Summarize the lab measurements by appropriate numerics and graphics. 
+
+```{r}
+lapply(lab_icuonly2[, -c(1, 2)], summary) #apply summary() to each columns
+```
+  
+  **Visualize each lab item by histograms **
+```{r}
+#use the unpivoted dataframe, since it is easier to facet. 
+lab_icuonly1%>%
+#There are many abnormal values on some of the variables, possibly due to the recording errors, limit each variable to make the histograms better:
+  filter((label == 'Creatinine' & valuenum < 7.5) | 
+           (label == 'White Blood Cells' & valuenum < 30 ) |
+           (label == 'Glucose' & valuenum < 1000) |
+           #The resut of the categories don't need to be filtered
+           (label == 'Bicarbonate') | (label == 'Chloride') |
+           (label == 'Hematocrit') | (label == 'Potassium') | 
+           (label == 'Sodium')) %>%
+  ggplot(aes(x = valuenum)) +
+    geom_histogram(bins = 50) +
+    facet_wrap(~ label, scales = "free")
+```
+
+## Q6. Vitals from charted events
+
+`chartevents.csv.gz` (<https://mimic.mit.edu/docs/iv/modules/icu/chartevents/>) contains all the charted data available for a patient. During their ICU stay, the primary repository of a patient’s information is their electronic chart. The `itemid` variable indicates a single measurement type in the database. The `value` variable is the value measured for `itemid`. The first 10 lines of `chartevents.csv.gz` are
+```{bash}
+zcat < ~/mimic/icu/chartevents.csv.gz | head
+```
+`d_items.csv.gz` (<https://mimic.mit.edu/docs/iv/modules/icu/d_items/>) is the dictionary for the `itemid` in `chartevents.csv.gz`. 
+```{bash}
+zcat < ~/mimic/icu/d_items.csv.gz | head
+```
+
+1. We are interested in the vitals for ICU patients: heart rate (220045), mean non-invasive blood pressure (220181), systolic non-invasive blood pressure (220179), body temperature in Fahrenheit (223761), and respiratory rate (220210). Retrieve a subset of `chartevents.csv.gz` only containing these items for the patients in `icustays_tble` as a tibble `chartevents_tble`.
+
+    Hint: `chartevents.csv.gz` is a data file too big to be read in by the `read_csv` function in its default setting. Utilize the `col_select` option in the `read_csv` function to reduce the memory burden. It took my computer >15 minutes to ingest this file. If your computer really has trouble importing `chartevents.csv.gz`, you can import from the reduced data file `chartevents_filtered_itemid.csv.gz`.
+
+```{r}
+chartevents <- read_csv(str_c(mimic_path, "/icu/chartevents_filtered_itemid.csv.gz"))
+#import dictionary
+chart_dic <- read_csv(str_c(mimic_path, "/icu/d_items.csv.gz"))
+```
+
+```{r}
+chartevents_tble <- chartevents %>%
+  filter(itemid %in% c(220045, 220181, 220179, 223761, 220210)) %>%
+  filter(subject_id %in% icu_uniq$subject_id) %>%
+  left_join(select(chart_dic, c(itemid, label)), by = 'itemid') %>%
+  print(width = Inf)
+```
+
+2. Further restrict `chartevents_tble` to the first vital measurement during the ICU stay. 
+```{r}
+#icu_arrange contains all the rows in icustays, but with only three relevant columns and sorted by subject ID.
+chart_icuonly1 <- chartevents_tble %>%
+  left_join(icu_arrange, by = "subject_id") %>%
+  filter(charttime >= intime & charttime <= outtime) %>%
+  group_by(subject_id, itemid) %>%
+  arrange(charttime, .by_group = T) %>%
+  slice_head(n = 1) %>%
+  ungroup()
+
+chart_icuonly2 <- chart_icuonly1 %>%
+  select(-hadm_id, -stay_id.x, -stay_id.y, -intime, -outtime, -charttime, -itemid) %>%
+  pivot_wider(names_from = label, 
+              values_from = valuenum) %>%
+  print(width = Inf)
+```
+
+3. Summarize these vital measurements by appropriate numerics and graphics.
+
+```{r}
+lapply(chart_icuonly2[, -1], summary) #apply summary() to each columns
+```
+  
+  **Visualize each lab item by histograms **
+```{r}
+#use the unpivoted dataframe, since it is easier to facet. 
+#From the summary result above, we can see that there are some very extreme outliers, possibly caused by misrecording. So, I filtered the values of those that are beyond the normal range, to make the plots look better.
+chart_icuonly1 %>%
+  filter((label == 'Non Invasive Blood Pressure mean' & valuenum < 250) | 
+           (label == 'Heart Rate' & valuenum < 250 ) |
+           (label == 'Non Invasive Blood Pressure systolic' & valuenum < 250) |
+           (label == 'Respiratory Rate' & valuenum < 50) | 
+           (label == 'Temperature Fahrenheit' & valuenum > 80)) %>%
+  ggplot(aes(x = valuenum)) +
+    geom_histogram(bins = 50) +
+    facet_wrap(~ label, scales = "free")
+```
+
+
+## Q7. Putting things together
+
+Let us create a tibble `mimic_icu_cohort` for all ICU stays, where rows are the first ICU stay of each unique adult (age at admission > 18) and columns contain at least following variables  
+
+- all variables in `icustays.csv.gz`  
+- all variables in `admission.csv.gz`  
+- all variables in `patients.csv.gz`  
+- first lab measurements during ICU stay  
+- first vital measurements during ICU stay
+- an indicator variable `thirty_day_mort` whether the patient died within 30 days of hospital admission (30 day mortality)
+
+
+```{r}
+mimic_icu_unfilter <- icustays_tble %>%
+  group_by(subject_id) %>%
+  arrange(intime) %>%
+  slice(n = 1) %>%
+  ungroup() %>%
+  left_join(patients_tble, by = 'subject_id') %>%
+  left_join(select(admissions_tble, -hadm_id), by = 'subject_id') %>%
+  mutate(age_real = anchor_age + year(admittime) - anchor_year) %>%
+  filter(age_real > 18) %>%
+  left_join(lab_icuonly2, by = 'subject_id') %>%
+  left_join(chart_icuonly2, by = 'subject_id') %>%
+  mutate(thirty_day_mort = ifelse(is.na(deathtime), FALSE, 
+                                  ((deathtime - admittime) < ddays(30)))) %>%
+  print(width = Inf)
+```
+  **There are multiple roles for a single subject_id, due to multiple admission, I only want to keep the admission data for the icu_stay. **
+```{r cohort dataset}
+mimic_icu_cohort <- mimic_icu_unfilter %>%
+   #Used filter to keep the rows that the intime of icu is between the admittime and dischattime of the admission.
+  filter(intime > admittime & intime < dischtime) %>%
+  #if there are multiple icu stays during one admission, only keep the first one
+  group_by(subject_id, admittime) %>%
+  slice(n = 1) %>%
+  ungroup() %>%
+  print(width = Inf)
+
+table(mimic_icu_cohort$thirty_day_mort)
+```
+
+## Q8. Exploratory data analysis (EDA)
+
+Summarize following information using appropriate numerics or graphs.
+
+- `thirty_day_mort` vs demographic variables (ethnicity, language, insurance, marital_status, gender, age at hospital admission)
+
+```{r ethinicity_summary}
+ethnicity_group <- mimic_icu_cohort %>%
+  group_by(ethnicity) %>%
+  summarise(num = n(), 
+            death_num = sum(thirty_day_mort),
+            mort_rate = death_num/num) %>%
+  #Limit the length of the labels
+  mutate(var_name = str_sub(ethnicity, end = 15)) %>%
+  print(width = Inf)
+```
+  **It looks like the patients whose ethnicity is 'unknown' or 'unable to obtain' have the highest mortality rate. Among the patients with known ethnicity, Asians have the highest death rate while American Indian has the lowest. **
+
+```{r language_summary}
+(language_group <- mimic_icu_cohort %>%
+  group_by(language) %>% summarise(num = n(), 
+                                   death_num = sum(thirty_day_mort),
+                                   mort_rate = death_num / num))
+```
+  **The patients whose language is unknown/non-English has a light higher death rate than those who speak English.**
+
+```{r insurance}
+(insurance_group <- mimic_icu_cohort %>%
+  group_by(insurance) %>% summarise(num = n(), 
+                                   death_num = sum(thirty_day_mort),
+                                   mort_rate = death_num / num))
+```
+  **Patients with Medicaid insurance have a lower death rate.**
+
+```{r marital_status}
+(marital_group <- mimic_icu_cohort %>%
+  group_by(marital_status) %>% summarise(num = n(), 
+                                   death_num = sum(thirty_day_mort),
+                                   mort_rate = death_num / num))
+```
+  **Among non-missing data, Single patients seems to have the lowest death rate while the widowed patients have the highest.**
+```{r gender}
+(gender_group <- mimic_icu_cohort %>%
+  group_by(gender) %>% summarise(num = n(), 
+                                   death_num = sum(thirty_day_mort),
+                                   mort_rate = death_num / num))
+```
+  **There is a slight trend that the female patients have a higher death rate than male patients.**
+
+  **For age, which is a numerical variable, it is a good idea to fit a linear regression**
+```{r age}
+(age_mort <- mimic_icu_cohort %>%
+  group_by(age_real) %>% summarise(num = n(), 
+                                   death_num = sum(thirty_day_mort),
+                                   mort_rate = death_num / num))
+lm(mort_rate ~ age_real, data = age_mort) %>%
+  summary()
+```
+  **It is obvious that the regression suggests a strong correlation between age and mortality rate, on average the death rate increases by 0.2% for every year the age increases.**
+
+**Visualization:**
+```{r}
+demo_vars <- c('ethnicity_group', 'language_group', 'insurance_group', 'marital_group', 'gender_group')
+colnames(language_group)[1] <- 'var_name'
+colnames(insurance_group)[1] <- 'var_name'
+colnames(marital_group)[1] <- 'var_name'
+colnames(gender_group)[1] <- 'var_name'
+
+#Use for loop to generate plots for all five variables.
+plots <- list()
+for (i in demo_vars) {
+  df <- get(i)
+  p <- ggplot(df) +
+    geom_col(mapping = aes(x = var_name, y = mort_rate)) +
+    xlab(i)+
+    theme(axis.text.x = element_text(angle = 20, hjust = 1, size = 5),
+          axis.title.x = element_text(size = 10))
+  plots[[i]] <- p
+}
+
+plots[[6]] <- ggplot(age_mort, mapping = aes(x = age_real, y = mort_rate)) +
+  geom_point() +
+  geom_smooth(method = 'gam') +
+  theme(axis.title.x = element_text(size = 10))
+```
+
+```{r}
+plots_arranged <- ggarrange(plotlist = plots, nrow = 2, ncol = 3, widths = c(3, 3, 3))
+
+plots_final <- ggdraw() + 
+  draw_label("Different mortality rates across demographic groups", 
+             fontface = "bold", fontfamily = "serif", size = 15, 
+             x = 0.5, y = 0.95) + 
+  draw_plot(plots_arranged)
+
+# Print the plot with the title
+print(plots_final)
+```
+  **These plots compared the 30-day-mortality rate across different demographic groups. All of them basically corresponds to the summaries based on the nurmeical summaries. For the dot plot of the mort vs age, it looks like there is an exponential growth of mortality rate with age.**
+
+- `thirty_day_mort` vs first lab measurements
+```{r}
+#The lab measurements data in the dataset are from col 29 to col 36, only select relevant columns
+summary_lab <- mimic_icu_cohort %>%
+  select(c(29:36, thirty_day_mort)) %>%
+  pivot_longer(-thirty_day_mort, 
+               names_to = 'lab_type', values_to = 'Values') %>%
+  filter(!is.na(Values)) %>%
+  #As mentioned before, there are many extreme outliers caused by errors. Here I filtered them out by quantile.
+  filter(Values > quantile(Values, 0.025, na.rm = TRUE) 
+         & Values < quantile(Values, 0.975, na.rm = TRUE)) %>%
+  group_by(lab_type, thirty_day_mort) %>%
+  summarise(number = n(),
+            mean = mean(Values),
+            sd = sd(Values)) %>%
+  print(width = Inf)
+```
+
+```{R}
+mimic_icu_cohort%>%
+  select(c(29:36, thirty_day_mort)) %>%
+  pivot_longer(-thirty_day_mort, names_to = 'lab_type', values_to = 'Values') %>%
+  group_by(lab_type) %>%
+  filter(!is.na(Values)) %>%
+  #As mentioned before, there are many extreme outliers caused by errors. Here I filtered them out by quantile.
+  filter(Values > quantile(Values, 0.025, na.rm = TRUE) 
+         & Values < quantile(Values, 0.975, na.rm = TRUE)) %>%
+  ungroup() %>%
+  ggplot() +
+  geom_boxplot(mapping = aes(x = thirty_day_mort, y = Values)) +
+  labs(x = 'Death Status at 30 days') +
+  ggtitle('First Lab Measurements in Two Groups')+
+  facet_wrap(~ lab_type, scales = "free")
+
+```
+  **For every lab measurement type, there seems to be a difference between the mean measurements of the TRUE and FALSE group. The more obvious ones are bicarbonate, creatinine, glucose and sodium. In bicarbonate the mortality group has a much lower mean bicarbonate level than the other. While in Creatinine group the mortality group has a higher level than the non-mortality group.**
+
+- `thirty_day_mort` vs first vital measurements
+```{r}
+#The lab measurements data in the dataset are from col 29 to col 36, only select relevant columns
+summary_vital <- mimic_icu_cohort %>%
+  select(c(37:42)) %>%
+  pivot_longer(-thirty_day_mort, names_to = 'vital_type', values_to = 'Values') %>%
+  filter(!is.na(Values)) %>%
+  #As mentioned before, there are many extreme outliers caused by errors. Here I filtered them out by quantile.
+  filter(Values > quantile(Values, 0.025, na.rm = TRUE) 
+         & Values < quantile(Values, 0.975, na.rm = TRUE)) %>%
+  group_by(vital_type, thirty_day_mort) %>%
+  summarise(number = n(),
+            mean = mean(Values),
+            sd = sd(Values)) %>%
+  print(width = Inf)
+```
+
+```{r}
+mimic_icu_cohort %>%
+  select(c(37:42)) %>%
+  pivot_longer(-thirty_day_mort, names_to = 'vital_type', values_to = 'Values') %>%
+  group_by(vital_type) %>%
+  filter(!is.na(Values)) %>%
+  #As mentioned before, there are many extreme outliers caused by errors. Here I filtered them out by quantile.
+  filter(Values > quantile(Values, 0.025, na.rm = TRUE) 
+         & Values < quantile(Values, 0.975, na.rm = TRUE)) %>%
+  ungroup() %>%
+  ggplot() +
+  geom_boxplot(mapping = aes(x = thirty_day_mort, y = Values)) +
+  labs(x = 'Death Status at 30 days') +
+  ggtitle('First Vital Measurements in Two Groups')+
+  facet_wrap(~ vital_type, scales = "free")
+```
+  **All the vital measurements are having a difference between the mort and non-mort groups. For example, the patients who died in 30 days have a higher heart rate and respiratory rate measurement.**
+
+- `thirty_day_mort` vs first ICU unit
+```{r}
+summary_unit <- mimic_icu_cohort %>%
+  select(c(first_careunit, thirty_day_mort)) %>%
+  count(first_careunit, thirty_day_mort) %>%
+  group_by(first_careunit) %>%
+  mutate(percent = n / sum(n) * 100) %>%
+  print(width = Inf)
+```
+
+```{r}
+summary_unit %>%
+  mutate(short_name = gsub(".*\\((.*)\\).*", "\\1", first_careunit)) %>%
+  arrange(n) %>%
+  ggplot() +
+  geom_col(mapping = aes(x = short_name, y = n, fill = thirty_day_mort), 
+           position = "fill") +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+```
+
+  **The Neuron SICU has the highest mortality rate among all types of ICU, while CVICU, Neuro Intermediate and Neuro Stepdown have the lowest death rates among all of them.**
