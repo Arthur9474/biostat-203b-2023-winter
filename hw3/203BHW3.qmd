@@ -21,9 +21,6 @@ knitr:
 ---
 
 Display machine information:
-```{r}
-sessionInfo()
-```
 
 Load database libraries and the tidyverse frontend:
 ```{r}
@@ -32,6 +29,11 @@ library(dbplyr)
 library(DBI)
 library(lubridate)
 library(tidyverse)
+library(shiny)
+```
+
+```{r}
+sessionInfo()
 ```
 
 ## Q1. Compile the ICU cohort in HW2 from the Google BigQuery database 
@@ -45,9 +47,9 @@ satoken <- "~/mimic/biostat-203b-2023winter-3fdc2392ac39.json"
 # BigQuery authentication using service account
 bq_auth(
   path = satoken,
-  # email = "mimiciv-bigquery@biostat-203b-2023winter.iam.gserviceaccount.com",
-  # scopes = c("https://www.googleapis.com/auth/bigquery",
-  #   "https://www.googleapis.com/auth/cloud-platform")
+  email = "mimiciv-bigquery@biostat-203b-2023winter.iam.gserviceaccount.com",
+  scopes = c("https://www.googleapis.com/auth/bigquery",
+    "https://www.googleapis.com/auth/cloud-platform")
 )
 ```
 
@@ -99,11 +101,10 @@ admissions_tble <- tbl(con, "admissions") %>%
 
 5. Connect to the `patients` table and only keep the patients who have a match in `icustays_tble` (according to `subject_id`).
 ```{r}
-# # TODO
 patients_tble <- tbl(con, "patients") %>%
   show_query() %>%
   arrange(subject_id) %>%
-  semi_join(icustays_tble, by=c('subject_id')) %>%
+  semi_join(icustays_tble, by = c('subject_id')) %>%
   print(width = Inf)
 ```
 
@@ -115,19 +116,18 @@ dic_lab <- tbl(con, "d_labitems")
 ```
 
 ```{r}
-# # TODO
 labevents_tble <- tbl(con, "labevents") %>%
   filter(itemid %in% 
            c(50912, 50971, 50983, 50902, 50882, 51221, 51301, 50931)) %>%
-  semi_join(icustays_tble, by=c('subject_id')) %>%
+  semi_join(icustays_tble, by = c('subject_id')) %>%
   left_join(select(dic_lab, c(itemid, label)), by = 'itemid') %>%
-  mutate(label = gsub(" ", "", label)) %>%#Remove space in the labels
+  #Remove space in the labels
+  mutate(label = gsub(" ", "", label)) %>% 
   print(width = Inf)
 ```
 Only keep the first lab measurements during ICU stay and pivot lab items to become variables/columns.
 
 ```{r}
-# # TODO
 labevents_tble2 <- labevents_tble %>%
   left_join(select(icustays_tble, subject_id, intime, outtime, stay_id), 
             by = "subject_id") %>%
@@ -140,20 +140,42 @@ labevents_tble2 <- labevents_tble %>%
               values_from = valuenum) %>%
   show_query() %>%
   print(width = Inf)
-
-labevents_tble2 %>% filter(subject_id == 17017876)
 ```
 
 7. Connect to `chartevents` table and retrieve a subset that only contain subjects who appear in `icustays_tble` and the chart events listed in HW2.
+
+  **Create dictionary file with chart measurements id**
 ```{r}
-# # TODO
-# chartevents_tble <- 
+dic_chart <- tbl(con, "d_items") %>%
+  print(width = Inf)
+```
+
+```{r}
+chartevents_tble <- tbl(con, "chartevents") %>%
+  filter(itemid %in% c(220045, 220181, 220179, 223761, 220210)) %>%
+  semi_join(icustays_tble, by = c('subject_id')) %>%
+  left_join(select(dic_chart, c(itemid, label)), by = 'itemid') %>%
+  mutate(label = gsub(" ", "", label)) %>% #Remove space in the labels
+  select(-stay_id) %>%
+  show_query() %>%
+  print(width = Inf)
 ```
 Only keep the first chart events during ICU stay and pivot chart events to become variables/columns.
 ```{r}
-# # TODO
-# chartevents_tble <- chartevents_tble %>% ...
+chartevents_tble2 <- chartevents_tble %>%
+  left_join(select(icustays_tble, subject_id, intime, outtime, stay_id), 
+            by = "subject_id") %>%
+  filter(charttime >= intime & charttime <= outtime) %>%
+  group_by(subject_id, itemid) %>% #group by lab items
+  arrange(charttime, .by_group = T) %>%
+  summarise_all(min) %>% #keep the first observation timewise
+  select(subject_id, stay_id, label, valuenum) %>%
+  pivot_wider(names_from = label, 
+              values_from = valuenum) %>%
+  show_query() %>%
+  print(width = Inf)
 ```
+
 
 8. Put things together. This step is similar to Q7 of HW2. Using one chain of pipes `%>%` to perform following data wrangling steps: (i) start with the `icustays_tble` for the first ICU stay of each unique patient, (ii) merge in admissions and patients tables, (iii) keep adults only (age at admission >= 18), (iv) merge in the labevents and chartevents tables, (v) create an indicator for 30-day mortality, (vi) save the final tibble to an `icu_cohort.rds` R data file in the `mimiciv_shiny` folder.
 
@@ -165,12 +187,36 @@ if (!dir.exists("mimiciv_shiny")) {
 ```
 
 ```{r}
-# # TODO
-# icu_cohort <- icustays_tble %>% ...
+icu_cohort <- icustays_tble %>%
+  group_by(subject_id) %>%
+  summarise_all(min) %>%
+  left_join(patients_tble, by = 'subject_id') %>%
+  left_join(select(admissions_tble, -hadm_id), 
+            by = 'subject_id') %>%
+  #Filter age > 18
+  mutate(age_real = anchor_age + year(admittime) - anchor_year) %>%
+  filter(age_real > 18) %>%
+  left_join(select(labevents_tble2, -stay_id),
+            by = 'subject_id') %>%
+  left_join(select(chartevents_tble2, -stay_id),
+            by = 'subject_id') %>%
+  #create indicator
+  mutate(thirty_day_mort =
+           ifelse(is.na(deathtime), FALSE,
+           day(deathtime - admittime) <= 30)) %>%
+  show_query() %>%
+  print(width = Inf)
+```
+
+  **convert the dataset as a tibble and save it as an rds file.**
+```{r}
+icu_cohort <- as.tibble(icu_cohort)
+nrow(icu_cohort)
+saveRDS(icu_cohort, "mimiciv_shiny/icu_cohort.rds")
 ```
 
 Close database connection and clear workspace.
-```{r, eval=F}
+```{r, eval = F}
 dbDisconnect(con)
 rm(list = ls())
 ```
@@ -178,3 +224,6 @@ rm(list = ls())
 ## Q2. Shiny app
 
 Develop a Shiny app for exploring the ICU cohort data created in Q1. The app should reside in the `mimiciv_shiny` folder. The app should provide easy access to the graphical and numerical summaries of variables (demographics, lab measurements, vitals) in the ICU cohort.
+
+  **Shiny app is in a different file inside the mimiciv_shiny folder**
+
