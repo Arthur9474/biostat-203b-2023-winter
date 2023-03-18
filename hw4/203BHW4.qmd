@@ -1,0 +1,635 @@
+---
+title: "203BHW4"
+subtitle: "Biostat 203B"
+author: "Dr. Hua Zhou @ UCLA"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+format:
+  html:
+    theme: cosmo
+    embed-resources: true
+    number-sections: true
+    toc: true
+    toc-depth: 4
+    toc-location: left
+    code-fold: false
+engine: knitr
+knitr:
+  opts_chunk: 
+    fig.align: 'center'
+    # fig.width: 6
+    # fig.height: 4
+    message: FALSE
+    cache: false
+---
+
+
+Load libraries and Display system information for reproducibility.
+
+```{r}
+# Load libraries
+library(GGally)
+library(gtsummary)
+library(tidyverse)
+library(tidymodels)
+library(glmnet)
+library(xgboost)
+```
+
+## icu_cohort data
+
+The goal is to predict the binary outcome `AHD` (`Yes` or `No`) of patients.
+
+Import the icu cohort dataset.
+
+Predictors to keep: demographic information (gender, age, marital status, ethnicity), first lab measurements during ICU stay, and first vital measurements during ICU stay.
+```{r}
+icu_cohort_hw4 <- readRDS("icu_cohort.rds") %>%
+  select(-subject_id, -stay_id, -intime,
+         -hadm_id, -first_careunit,
+         -last_careunit, -outtime, -los, 
+         -anchor_age, -anchor_year, 
+         -anchor_year_group, -dod, -admittime, 
+         -dischtime, -deathtime, -admission_type,
+         -admission_location, -admission_location,
+         -discharge_location, -edregtime,
+         -edouttime, -hospital_expire_flag,
+         #Some demographic to delete
+         -insurance, -language) %>%
+  #change character variables to factor variables
+  mutate(gender = as.factor(gender),
+         marital_status = as.factor(marital_status),
+         ethnicity = as.factor(ethnicity),
+         #change outcome variable to factor
+         thirty_day_mort = as.factor(thirty_day_mort)) %>%
+  print(width = Inf)
+```
+
+
+```{r}
+# Numerical summaries stratified by the outcome `AHD`.
+icu_cohort_hw4 %>% tbl_summary(by = thirty_day_mort)
+```
+
+## Logit - Overview
+
+1. Initial splitting to test and non-test sets.
+
+2. Pre-processing of data: dummy coding categorical variables, standardizing numerical variables, imputing missing values, ...
+
+3. Tune the logistic regression with enet regularization using 5-fold cross-validation (CV) on the non-test data.
+
+4. Choose the best model by CV and refit it on the whole non-test data.
+
+5. Final classification on the test data.
+
+## Initial split into test and non-test sets
+
+We randomly split the data into 25% test data and 75% non-test data. Stratify on `AHD`.
+
+```{r}
+# For reproducibility
+set.seed(203)
+
+data_split <- initial_split(
+  icu_cohort_hw4, 
+  # stratify by AHD
+  strata = "thirty_day_mort", 
+  prop = 0.5
+  )
+data_split
+
+ICU_other <- training(data_split)
+dim(ICU_other)
+
+ICU_test <- testing(data_split)
+dim(ICU_test)
+```
+
+
+## Recipe (R) and Preprocessing (Python)
+
+- A data dictionary (roughly) is at <https://keras.io/examples/structured_data/structured_data_classification_with_feature_space/>.
+
+- We have following features: 
+
+    - Numerical features:
+    Sodium, Glucose, Chloride, Potassium, Creatinine, Hematocrit, Bicarbonate, WhiteBloodCells, TemperatureFahrenheit, NonInvasiveBloodPressuresystolic, NonInvasiveBloodPressuremean, RespiratoryRate, HeartRate, age_real
+
+    - Categorical features coded as string: `gender`, `marital_status`, ''.
+
+check percentages of ethnicity in the ICU_cohort dataset
+```{r}
+icu_cohort_hw4 %>%
+  select(ethnicity) %>% 
+  table() %>% prop.table()
+#Check number of missing values in marital status
+icu_cohort_hw4 %>%
+  select(marital_status) %>% 
+  filter(is.na(marital_status)) %>%
+  nrow()
+```
+
+- There are missing values in every numerical column except age_real. Missing proportion is not high (around 1500/50,000 at most), use median imputation, because many extreme outliers exist.
+
+- In categorical variables marital_status and ethnicity, combine the levels with minimal frequency into "others"
+```{r}
+logit_recipe <- 
+  recipe(
+    thirty_day_mort ~ ., 
+    data = ICU_other
+  ) %>%
+  # mean imputation for numerical variables
+  step_impute_median(all_of(
+    c("Sodium", "Glucose", 
+      "Chloride", "Potassium",
+      "Creatinine", "Hematocrit", 
+      "Bicarbonate", "WhiteBloodCells", 
+      "TemperatureFahrenheit",
+      "NonInvasiveBloodPressuresystolic",
+      "NonInvasiveBloodPressuremean", 
+      "RespiratoryRate", "HeartRate")
+    )) %>%
+  # Classify the missing values of marital_status as another
+  # level (4617 NAs)
+  step_impute_mode("marital_status") %>%
+  # combine levels in categorical variables into "other"
+  step_mutate(
+    ethnicity = as.factor(
+      case_when(
+      ethnicity %in% c("AMERICAN INDIAN/ALASKA NATIVE",
+                       "OTHER", 
+                       "UNABLE TO OBTAIN",
+                       "UNKNOWN") 
+      ~ "other",
+      TRUE ~ ethnicity)
+    )) %>%
+  print(width = Inf) %>%
+  # create traditional dummy variables
+  step_dummy(all_nominal_predictors()) %>%
+  # zero-variance filter
+  step_zv(all_numeric_predictors()) %>% 
+  # center and scale numeric data
+  step_normalize(all_numeric_predictors()) %>%
+  # estimate the means and standard deviations
+  prep(training = ICU_other, retain = TRUE)
+logit_recipe
+```
+
+
+## Model
+
+```{r}
+logit_mod <- 
+  logistic_reg(
+    penalty = tune(), 
+    mixture = tune()
+  ) %>% 
+  set_engine("glmnet", standardize = FALSE)
+logit_mod
+```
+
+
+
+## Workflow in R and pipeline in Python
+
+Here we bundle the preprocessing step (Python) or recipe (R) and model.
+
+```{r}
+logit_wf <- workflow() %>%
+  add_recipe(logit_recipe) %>%
+  add_model(logit_mod)
+logit_wf
+```
+
+## Tuning grid
+
+Here we tune the `penalty` and `mixture` hyperparameters.
+
+```{r}
+param_grid <- grid_regular(
+  penalty(range = c(-6, 3)), 
+  mixture(),
+  levels = c(100, 5)
+  )
+param_grid
+```
+
+
+## Cross-validation (CV)
+
+Set cross-validation partitions.
+```{r}
+set.seed(203)
+
+folds <- vfold_cv(ICU_other, v = 5)
+folds
+```
+
+Fit cross-validation.
+```{r}
+system.time({
+logit_fit <- logit_wf %>%
+  tune_grid(
+    resamples = folds,
+    grid = param_grid,
+    metrics = metric_set(roc_auc, accuracy)
+    )
+})
+logit_fit
+```
+
+Visualize CV results:
+```{r}
+logit_fit %>%
+  collect_metrics() %>%
+  print(width = Inf) %>%
+  filter(.metric == "roc_auc") %>%
+  ggplot(mapping = aes(x = penalty, y = mean, color = mixture)) +
+  geom_point() +
+  labs(x = "Penalty", y = "CV AUC") +
+  scale_x_log10()
+```
+
+Show the top 5 models.
+```{r}
+logit_fit %>%
+  show_best("roc_auc")
+```
+Let's select the best model.
+```{r}
+best_logit <- logit_fit %>%
+  select_best("roc_auc")
+best_logit
+```
+
+
+
+## Finalize our model
+
+Now we are done tuning. Finally, let’s fit this final model to the whole training data and use our test data to estimate the model performance we expect to see with new data.
+
+```{r}
+# Final workflow
+final_wf <- logit_wf %>%
+  finalize_workflow(best_logit)
+final_wf
+```
+
+```{r}
+# Fit the whole training set, then predict the test cases
+final_fit <- 
+  final_wf %>%
+  last_fit(data_split)
+final_fit
+```
+
+```{r}
+# Test metrics
+final_fit %>% 
+  collect_metrics()
+```
+
+
+## RF - Overview
+
+1. Initial splitting to test and non-test sets, (use same splitting from the logistic model).
+
+2. Pre-processing of data: dummy coding categorical variables, standardizing numerical variables, imputing missing values, ...
+
+3. Tune the random forest using 5-fold cross-validation (CV) on the non-test data.
+
+4. Choose the best model by CV and refit it on the whole non-test data.
+
+5. Final classification on the test data.
+
+```{r}
+# Numerical summaries stratified by the outcome `thirty_year_mort`.
+icu_cohort_hw4 %>% tbl_summary(by = thirty_day_mort)
+```
+
+
+## Recipe (R)
+
+- Same as the recipe in logistic model, but the dummy variable step is not necessary
+```{r}
+rf_recipe <- 
+  recipe(
+    thirty_day_mort ~ ., 
+    data = ICU_other
+  ) %>%
+  # mean imputation for numerical variables
+  step_impute_median(all_of(
+    c("Sodium", "Glucose", 
+      "Chloride", "Potassium",
+      "Creatinine", "Hematocrit", 
+      "Bicarbonate", "WhiteBloodCells", 
+      "TemperatureFahrenheit",
+      "NonInvasiveBloodPressuresystolic",
+      "NonInvasiveBloodPressuremean", 
+      "RespiratoryRate", "HeartRate")
+    )) %>%
+  # Classify the missing values of marital_status as another
+  # level (4617 NAs)
+  step_impute_mode("marital_status") %>%
+  # combine levels in categorical variables into "other"
+  step_mutate(
+    ethnicity = as.factor(
+      case_when(
+      ethnicity %in% c("AMERICAN INDIAN/ALASKA NATIVE",
+                       "OTHER", 
+                       "UNABLE TO OBTAIN",
+                       "UNKNOWN") 
+      ~ "other",
+      TRUE ~ethnicity)
+    )) %>%
+  print(width = Inf) %>%
+  # zero-variance filter
+  step_zv(all_numeric_predictors()) %>% 
+  # center and scale numeric data
+  step_normalize(all_numeric_predictors()) %>%
+  # estimate the means and standard deviations
+  prep(training = ICU_other, retain = TRUE)
+  # dummy variable step is not needed for random forest
+rf_recipe
+```
+
+
+## Model
+
+
+```{r}
+rf_mod <- 
+  rand_forest(
+    mode = "classification",
+    # Number of predictors randomly sampled in each split
+    mtry = tune(),
+    # Number of trees in ensemble
+    trees = tune()
+  ) %>% 
+  set_engine("ranger")
+rf_mod
+```
+
+## Workflow in R and pipeline in Python
+
+Here we bundle the preprocessing step (Python) or recipe (R) and model.
+
+```{r}
+rf_wf <- workflow() %>%
+  add_recipe(rf_recipe) %>%
+  add_model(rf_mod)
+rf_wf
+```
+
+## Tuning grid
+
+Here we tune the number of trees `trees` and the number of features to use in each split `mtry`.
+
+```{r}
+param_grid <- grid_regular(
+  trees(range = c(100L, 300L)), 
+  mtry(range = c(1L, 5L)),
+  levels = c(3, 5)
+  )
+param_grid
+```
+
+
+## Cross-validation (CV)
+
+Set cross-validation partitions.
+```{r}
+set.seed(204)
+
+rf_folds <- vfold_cv(ICU_other, v = 5)
+rf_folds
+```
+
+Fit cross-validation.
+```{r}
+rf_fit <- rf_wf %>%
+  tune_grid(
+    resamples = rf_folds,
+    grid = param_grid,
+    metrics = metric_set(roc_auc, accuracy)
+    )
+rf_fit
+```
+
+Visualize CV results:
+```{r}
+rf_fit %>%
+  collect_metrics() %>%
+  print(width = Inf) %>%
+  filter(.metric == "roc_auc") %>%
+  ggplot(mapping = aes(x = trees, y = mean, color = mtry)) +
+  geom_point() + 
+  # geom_line() + 
+  labs(x = "Num. of Trees", y = "CV AUC")
+```
+
+Show the top 5 models.
+```{r}
+rf_fit %>%
+  show_best("roc_auc")
+```
+
+Let's select the best model.
+```{r}
+best_rf <- rf_fit %>%
+  select_best("roc_auc")
+best_rf
+```
+
+## Finalize our model
+
+Now we are done tuning. Finally, let’s fit this final model to the whole training data and use our test data to estimate the model performance we expect to see with new data.
+
+```{r}
+# Final workflow
+rf_final_wf <- rf_wf %>%
+  finalize_workflow(best_rf)
+rf_final_wf
+```
+
+```{r}
+# Fit the whole training set, then predict the test cases
+rf_final_fit <- 
+  rf_final_wf %>%
+  last_fit(data_split)
+rf_final_fit
+```
+
+```{r}
+# Test metrics
+rf_final_fit %>% 
+  collect_metrics()
+```
+
+## XGB_Overview
+
+1. Initial splitting to test and non-test sets 
+--use same split from logistic
+
+2. Pre-processing of data: dummy coding categorical variables, standardizing numerical variables, imputing missing values, ...
+
+3. Tune the gradient boosting algorithm using 5-fold cross-validation (CV) on the non-test data.
+
+4. Choose the best model by CV and refit it on the whole non-test data.
+
+5. Final classification on the test data.
+
+
+## Recipe (R)
+
+the recipe of gb requires creating dummy variables:
+```{r}
+gb_recipe <- 
+  recipe(
+    thirty_day_mort ~ ., 
+    data = ICU_other
+  ) %>%
+  # mean imputation for numerical variables
+  step_impute_median(all_of(
+    c("Sodium", "Glucose", 
+      "Chloride", "Potassium",
+      "Creatinine", "Hematocrit", 
+      "Bicarbonate", "WhiteBloodCells", 
+      "TemperatureFahrenheit",
+      "NonInvasiveBloodPressuresystolic",
+      "NonInvasiveBloodPressuremean", 
+      "RespiratoryRate", "HeartRate")
+    )) %>%
+  # Classify the missing values of marital_status as another
+  # level (4617 NAs)
+  step_impute_mode("marital_status") %>%
+  # combine levels in categorical variables into "other"
+  step_mutate(
+    ethnicity = as.factor(
+      case_when(
+      ethnicity %in% c("AMERICAN INDIAN/ALASKA NATIVE",
+                       "OTHER", 
+                       "UNABLE TO OBTAIN",
+                       "UNKNOWN") 
+      ~ "other",
+      TRUE ~ ethnicity)
+    )) %>%
+  print(width = Inf) %>%
+  # create traditional dummy variables (necessary for xgboost)
+  step_dummy(all_nominal_predictors()) %>%
+  # zero-variance filter
+  step_zv(all_numeric_predictors()) %>% 
+  # center and scale numeric data
+  step_normalize(all_numeric_predictors()) %>%
+  # estimate the means and standard deviations
+  prep(training = ICU_other, retain = TRUE)
+gb_recipe
+```
+
+## Model
+
+```{r}
+gb_mod <- 
+  boost_tree(
+    mode = "classification",
+    trees = 1000, 
+    tree_depth = tune(),
+    learn_rate = tune()
+  ) %>% 
+  set_engine("xgboost")
+gb_mod
+```
+
+## Workflow in R 
+```{r}
+gb_wf <- workflow() %>%
+  add_recipe(gb_recipe) %>%
+  add_model(gb_mod)
+gb_wf
+```
+
+## Tuning grid
+
+Here we tune the number of trees `trees` and the number of features to use in each split `mtry`.
+
+```{r}
+param_grid <- grid_regular(
+  tree_depth(range = c(1L, 3L)),
+  learn_rate(range = c(-5, 2), trans = log10_trans()),
+  levels = c(3, 10)
+  )
+param_grid
+```
+
+## Cross-validation (CV)
+
+Set cross-validation partitions, use a different fold.
+```{r}
+set.seed(205)
+
+gb_folds <- vfold_cv(ICU_other, v = 5)
+gb_folds
+```
+
+Fit cross-validation.
+```{r}
+system.time({
+  gb_fit <- gb_wf %>%
+  tune_grid(
+    resamples = gb_folds,
+    grid = param_grid,
+    metrics = metric_set(roc_auc, accuracy)
+    )}
+)
+gb_fit
+```
+
+Visualize CV results:
+```{r}
+gb_fit %>%
+  collect_metrics() %>%
+  print(width = Inf) %>%
+  filter(.metric == "roc_auc") %>%
+  ggplot(mapping = aes(x = learn_rate, y = mean, color = tree_depth)) +
+  geom_point() +
+  labs(x = "Learning Rate", y = "CV AUC") +
+  scale_x_log10()
+```
+
+Show the top 5 models.
+```{r}
+gb_fit %>%
+  show_best("roc_auc")
+```
+Let's select the best model.
+```{r}
+best_gb <- gb_fit %>%
+  select_best("roc_auc")
+best_gb
+```
+
+
+## Finalize our model
+Now we are done tuning. Finally, let’s fit this final model to the whole training data and use our test data to estimate the model performance we expect to see with new data.
+
+
+```{r}
+# Final workflow
+gb_final_wf <- gb_wf %>%
+  finalize_workflow(best_gb)
+gb_final_wf
+```
+
+```{r}
+# Fit the whole training set, then predict the test cases
+gb_final_fit <- 
+  gb_final_wf %>%
+  last_fit(data_split)
+gb_final_fit
+```
+
+```{r}
+# Test metrics
+gb_final_fit %>% 
+  collect_metrics()
+```
